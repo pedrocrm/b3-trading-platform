@@ -3,7 +3,7 @@ B3 Trading Platform - API Principal
 FastAPI com WebSocket, autenticação JWT e integração com MT5
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
@@ -14,11 +14,24 @@ import json
 import random
 import logging
 import os
+import tempfile
+import shutil
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 import redis.asyncio as redis
 from contextlib import asynccontextmanager
+
+# Importações dos módulos legais
+from cnj_datajus import CNJDataJusAPI, ProcessSearchRequest, cnj_client
+from legal_document_processor import (
+    LegalDocumentProcessor, DocumentMetadata, DocumentType, 
+    RetentionCategory, LegalRetentionPolicy, document_processor
+)
+from legal_rbac import (
+    LegalRole, Permission, RBACManager, EthicalWallManager,
+    TenantCreate, TenantUserCreate, rbac_manager, ethical_wall_manager
+)
 
 # Configuração de Logging
 logging.basicConfig(
@@ -37,6 +50,11 @@ class Settings:
     REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD', '')}@{os.getenv('REDIS_HOST', 'localhost')}:{os.getenv('REDIS_PORT', 6379)}/0"
     API_VERSION = "1.0.0"
     DATABASE_URL = f"postgresql://{os.getenv('DB_USER', 'trader')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', 'localhost')}:{os.getenv('DB_PORT', 5432)}/{os.getenv('DB_NAME', 'b3trading')}"
+    
+    # Configurações específicas para sistema jurídico
+    UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/tmp/legal_documents")
+    MAX_FILE_SIZE = int(os.getenv("MAX_FILE_SIZE", 50 * 1024 * 1024))  # 50MB
+    ALLOWED_FILE_TYPES = [".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg", ".tiff"]
     
 settings = Settings()
 
@@ -96,6 +114,64 @@ class AccountInfo(BaseModel):
     margin_level: float
     positions_count: int
     profit_today: float
+
+# ======================== MODELOS JURÍDICOS ========================
+
+class LegalCaseCreate(BaseModel):
+    """Modelo para criação de caso jurídico"""
+    title: str = Field(..., min_length=5, max_length=500)
+    description: Optional[str] = None
+    case_type: str
+    client_id: Optional[str] = None
+    opposing_party: Optional[str] = None
+    court_date: Optional[datetime] = None
+    deadline_date: Optional[datetime] = None
+
+class LegalCaseResponse(BaseModel):
+    """Resposta com dados do caso jurídico"""
+    id: str
+    title: str
+    description: Optional[str]
+    case_type: str
+    status: str
+    client_id: Optional[str]
+    opposing_party: Optional[str]
+    opened_date: datetime
+    court_date: Optional[datetime]
+    deadline_date: Optional[datetime]
+    responsible_lawyer_id: Optional[str]
+
+class DocumentUploadResponse(BaseModel):
+    """Resposta do upload de documento"""
+    document_id: str
+    filename: str
+    file_size: int
+    document_type: DocumentType
+    confidence_score: float
+    processing_time: float
+    extracted_entities_count: int
+    success: bool
+    errors: List[str] = []
+
+class CNJSearchResponse(BaseModel):
+    """Resposta da busca no CNJ DataJus"""
+    process_number: str
+    tribunal: str
+    total_results: int
+    results: List[Dict[str, Any]]
+    search_time: float
+
+class LegalAnalysisRequest(BaseModel):
+    """Requisição para análise jurídica"""
+    text: str = Field(..., min_length=10)
+    analysis_type: str = Field(..., regex="^(entities|classification|similarity)$")
+    
+class LegalAnalysisResponse(BaseModel):
+    """Resposta da análise jurídica"""
+    analysis_type: str
+    results: Dict[str, Any]
+    confidence: float
+    processing_time: float
 
 # ======================== SEGURANÇA ========================
 
@@ -564,6 +640,294 @@ async def user_websocket(websocket: WebSocket, user_id: str):
     except Exception as e:
         logger.error(f"Erro no WebSocket do usuário {user_id}: {e}")
         connection_manager.disconnect(websocket, user_id)
+
+# ======================== ROTAS JURÍDICAS ========================
+
+@app.post("/api/v1/legal/search-cnj", response_model=CNJSearchResponse)
+async def search_cnj_process(
+    search_request: ProcessSearchRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Buscar processo no CNJ DataJus"""
+    try:
+        start_time = datetime.now()
+        
+        # Verificar permissão
+        # if not rbac_manager.has_permission(current_user.role, Permission.SEARCH_CNJ):
+        #     raise HTTPException(status_code=403, detail="Permissão negada para busca CNJ")
+        
+        result = await cnj_client.search_process(search_request)
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        hits = result.get("hits", {})
+        total = hits.get("total", {}).get("value", 0)
+        processes = hits.get("hits", [])
+        
+        # Extrair tribunal do primeiro resultado ou usar o número do processo
+        tribunal = "CNJ"
+        if processes:
+            first_process = processes[0].get("_source", {})
+            tribunal = first_process.get("tribunal", "CNJ")
+        
+        return CNJSearchResponse(
+            process_number=search_request.numeroProcesso,
+            tribunal=tribunal,
+            total_results=total,
+            results=[hit.get("_source", {}) for hit in processes],
+            search_time=processing_time
+        )
+        
+    except Exception as e:
+        logger.error(f"Erro na busca CNJ: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro na busca CNJ: {str(e)}")
+
+@app.post("/api/v1/legal/upload-document", response_model=DocumentUploadResponse)
+async def upload_legal_document(
+    file: UploadFile = File(...),
+    tenant_id: str = "default",
+    client_id: Optional[str] = None,
+    case_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """Upload e processamento de documento jurídico"""
+    try:
+        # Verificar permissões
+        # if not rbac_manager.has_permission(current_user.role, Permission.UPLOAD_DOCUMENTS):
+        #     raise HTTPException(status_code=403, detail="Permissão negada para upload de documentos")
+        
+        # Verificar tipo de arquivo
+        file_extension = os.path.splitext(file.filename)[1].lower()
+        if file_extension not in settings.ALLOWED_FILE_TYPES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Tipo de arquivo não permitido. Tipos aceitos: {settings.ALLOWED_FILE_TYPES}"
+            )
+        
+        # Verificar tamanho do arquivo
+        file.file.seek(0, 2)  # Mover para o final do arquivo
+        file_size = file.file.tell()
+        file.file.seek(0)  # Voltar para o início
+        
+        if file_size > settings.MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Arquivo muito grande. Tamanho máximo: {settings.MAX_FILE_SIZE / (1024*1024):.1f}MB"
+            )
+        
+        # Criar diretório de upload se não existir
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        
+        # Salvar arquivo temporariamente
+        with tempfile.NamedTemporaryFile(delete=False, suffix=file_extension) as tmp_file:
+            shutil.copyfileobj(file.file, tmp_file)
+            tmp_file_path = tmp_file.name
+        
+        try:
+            # Processar documento
+            result = await document_processor.process_document(
+                tmp_file_path, tenant_id, client_id, case_id
+            )
+            
+            return DocumentUploadResponse(
+                document_id=result.document_id,
+                filename=file.filename,
+                file_size=file_size,
+                document_type=result.document_type,
+                confidence_score=result.confidence_score,
+                processing_time=result.processing_time,
+                extracted_entities_count=len(result.entities),
+                success=result.success,
+                errors=result.errors
+            )
+            
+        finally:
+            # Limpar arquivo temporário
+            if os.path.exists(tmp_file_path):
+                os.unlink(tmp_file_path)
+                
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro no upload de documento: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro no processamento: {str(e)}")
+
+@app.post("/api/v1/legal/analyze-text", response_model=LegalAnalysisResponse)
+async def analyze_legal_text(
+    request: LegalAnalysisRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Análise de texto jurídico"""
+    try:
+        start_time = datetime.now()
+        
+        if request.analysis_type == "entities":
+            # Extrair entidades jurídicas
+            entities = document_processor.extract_legal_entities(request.text)
+            results = {
+                "entities": [entity.dict() for entity in entities],
+                "total_entities": len(entities)
+            }
+            confidence = 0.85
+            
+        elif request.analysis_type == "classification":
+            # Classificar tipo de documento
+            doc_type, confidence = document_processor.classify_document_type(request.text)
+            results = {
+                "document_type": doc_type.value,
+                "confidence": confidence
+            }
+            
+        elif request.analysis_type == "similarity":
+            # Gerar embedding para análise de similaridade
+            embedding = document_processor.generate_embedding(request.text)
+            results = {
+                "embedding_size": len(embedding),
+                "preview": embedding[:10] if embedding else []
+            }
+            confidence = 0.9
+            
+        else:
+            raise HTTPException(status_code=400, detail="Tipo de análise inválido")
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        return LegalAnalysisResponse(
+            analysis_type=request.analysis_type,
+            results=results,
+            confidence=confidence,
+            processing_time=processing_time
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro na análise de texto: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro na análise: {str(e)}")
+
+@app.post("/api/v1/legal/cases", response_model=LegalCaseResponse)
+async def create_legal_case(
+    case_data: LegalCaseCreate,
+    tenant_id: str = "default",
+    current_user: User = Depends(get_current_user)
+):
+    """Criar novo caso jurídico"""
+    try:
+        # Verificar permissões
+        # if not rbac_manager.has_permission(current_user.role, Permission.CREATE_CASES):
+        #     raise HTTPException(status_code=403, detail="Permissão negada para criar casos")
+        
+        # Simular criação de caso (em produção, salvar no banco de dados)
+        case_id = f"case_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        return LegalCaseResponse(
+            id=case_id,
+            title=case_data.title,
+            description=case_data.description,
+            case_type=case_data.case_type,
+            status="active",
+            client_id=case_data.client_id,
+            opposing_party=case_data.opposing_party,
+            opened_date=datetime.now(),
+            court_date=case_data.court_date,
+            deadline_date=case_data.deadline_date,
+            responsible_lawyer_id=current_user.username
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao criar caso: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao criar caso: {str(e)}")
+
+@app.get("/api/v1/legal/cases")
+async def list_legal_cases(
+    tenant_id: str = "default",
+    limit: int = 50,
+    current_user: User = Depends(get_current_user)
+):
+    """Listar casos jurídicos"""
+    try:
+        # Verificar permissões
+        # if not rbac_manager.has_permission(current_user.role, Permission.VIEW_CASES):
+        #     raise HTTPException(status_code=403, detail="Permissão negada para visualizar casos")
+        
+        # Simular lista de casos (em produção, buscar do banco de dados)
+        sample_cases = [
+            {
+                "id": "case_20241216_001",
+                "title": "Ação de Cobrança - Cliente ABC",
+                "case_type": "civil",
+                "status": "active",
+                "opened_date": "2024-12-01T10:00:00",
+                "deadline_date": "2024-12-30T23:59:59",
+                "responsible_lawyer": current_user.username
+            },
+            {
+                "id": "case_20241216_002",
+                "title": "Revisão Contratual - Empresa XYZ",
+                "case_type": "commercial",
+                "status": "pending",
+                "opened_date": "2024-12-10T14:30:00",
+                "deadline_date": "2024-12-25T23:59:59",
+                "responsible_lawyer": current_user.username
+            }
+        ]
+        
+        return {
+            "cases": sample_cases[:limit],
+            "total": len(sample_cases),
+            "tenant_id": tenant_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Erro ao listar casos: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao listar casos: {str(e)}")
+
+@app.get("/api/v1/legal/retention-policy")
+async def get_retention_policy(current_user: User = Depends(get_current_user)):
+    """Obter política de retenção LGPD"""
+    try:
+        return {
+            "retention_categories": {
+                "CATEGORY_1": {
+                    "name": "Documentos Permanentes",
+                    "description": "Testamentos, escrituras - retenção indefinida",
+                    "period": None,
+                    "document_types": ["testament", "deed"]
+                },
+                "CATEGORY_2": {
+                    "name": "Arquivos de Clientes",
+                    "description": "Processos e documentos de clientes - 7 anos",
+                    "period": "7 years",
+                    "document_types": ["contract", "petition", "judgment"]
+                },
+                "CATEGORY_3": {
+                    "name": "Documentos Administrativos",
+                    "description": "Regulamentos e normas - 5 anos",
+                    "period": "5 years",
+                    "document_types": ["regulation"]
+                },
+                "CATEGORY_4": {
+                    "name": "Correspondências",
+                    "description": "Comunicações gerais - 3 anos",
+                    "period": "3 years",
+                    "document_types": ["correspondence"]
+                }
+            },
+            "compliance_info": {
+                "framework": "LGPD (Lei Geral de Proteção de Dados)",
+                "automatic_deletion": True,
+                "audit_trail": True,
+                "data_subject_rights": ["access", "correction", "deletion", "portability"]
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao obter política de retenção: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
 
 # ======================== MAIN ========================
 

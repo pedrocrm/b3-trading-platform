@@ -32,11 +32,31 @@ httpx==0.25.2
 prometheus-client==0.19.0
 
 # Trading e análise
-numpy==1.25.2
-pandas==2.1.4
+numpy>=1.21.0
+pandas>=1.5.0
 
 # MetaTrader 5 integration
-MetaTrader5==5.0.45
+# MetaTrader5==5.0.45
+
+# CNJ DataJus API e Legal Tech
+requests==2.31.0
+# elasticsearch==8.11.1
+# transformers==4.36.2
+# torch==2.1.2
+# sentence-transformers==2.2.2
+PyPDF2==3.0.1
+python-docx==1.1.0
+
+# OCR e processamento de documentos
+Pillow>=9.0.0
+# pytesseract==0.3.10
+
+# Machine Learning para análise jurídica
+scikit-learn>=1.0.0
+# spacy==3.7.2
+
+# LGPD compliance e auditoria
+cryptography>=3.4.0
 
 # Desenvolvimento
 pytest==7.4.3
