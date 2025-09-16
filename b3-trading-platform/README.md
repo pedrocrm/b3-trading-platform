@@ -1,28 +1,75 @@
-# 🚀 B3 Trading Platform
+# ⚖️ Legal Tech Platform
 
-Plataforma completa de trading automatizado para B3 com integração MetaTrader 5.
+**Sistema Jurídico Avançado com Integração CNJ DataJus API e IA**
+
+Plataforma completa para escritórios de advocacia com busca de processos, processamento de documentos, gestão de casos e conformidade LGPD.
+
+![Legal Tech Platform](https://github.com/user-attachments/assets/b5a1eaf6-ec27-480f-94d1-fe0f290461b2)
+
+## 🚀 Funcionalidades Principais
+
+### 🔍 Consulta CNJ DataJus
+- Busca em **91 tribunais brasileiros** em tempo real
+- Cobertura nacional: STJ, TST, TSE, TRFs, TJs, TRTs, TREs, TJMs
+- Mapeamento automático de tribunal por número CNJ
+- API oficial com chave pública do CNJ
+
+### 📄 Processamento Inteligente de Documentos
+- **OCR Avançado**: PDF, DOCX, imagens com IA
+- **Classificação Automática**: Contratos, petições, sentenças
+- **Extração de Entidades**: Números de processo, artigos de lei
+- **Busca Semântica**: Embeddings para similaridade
+
+### ⚖️ Gestão de Casos Jurídicos
+- Dashboard moderno para advogados
+- Controle de prazos com alertas automáticos
+- Organização por status, tipo e responsável
+- Identificação de casos urgentes
+
+### 🏢 Multi-tenancy para Escritórios
+- Isolamento completo entre escritórios
+- RBAC com 6 papéis jurídicos específicos
+- Murallas éticas para conflitos de interesse
+- Auditoria completa para conformidade
+
+### 📋 Conformidade LGPD
+- Políticas de retenção automáticas
+- 4 categorias: indefinida, 7 anos, 5 anos, 3 anos
+- Direitos do titular implementados
+- Exclusão automática por categoria
 
 ## 📋 Características
 
-- ✅ API REST com FastAPI
-- ✅ WebSocket para dados em tempo real
-- ✅ Interface web moderna com Next.js
-- ✅ Integração com MetaTrader 5
-- ✅ Banco de dados PostgreSQL
-- ✅ Cache Redis
-- ✅ Monitoramento com Grafana
-- ✅ Docker Compose para deploy
-- ✅ Autenticação JWT
-- ✅ Gestão de risco automatizada
+- ✅ **API REST Completa** com FastAPI
+- ✅ **Interface Web Moderna** com Next.js
+- ✅ **Integração CNJ DataJus** oficial
+- ✅ **Processamento de Documentos** com IA
+- ✅ **Multi-tenancy** para escritórios
+- ✅ **RBAC Jurídico** com 6 papéis
+- ✅ **Conformidade LGPD** automática
+- ✅ **Auditoria Completa** para compliance
+- ✅ **Docker Compose** para deploy
+- ✅ **Autenticação JWT** segura
 
 ## 🛠 Tecnologias
 
-- **Backend**: Python 3.11, FastAPI, SQLAlchemy
-- **Frontend**: Next.js 14, React 18, TypeScript, TailwindCSS
-- **Database**: PostgreSQL 15, Redis 7
-- **Trading**: MetaTrader 5, MQL5
-- **DevOps**: Docker, Docker Compose
-- **Monitoring**: Grafana, Prometheus
+### Backend
+- **Python 3.11** + **FastAPI** - API moderna e rápida
+- **PostgreSQL 15** - Banco multi-tenant robusto
+- **Redis 7** - Cache e sessões
+- **CNJ DataJus API** - Integração oficial
+
+### Frontend
+- **Next.js 14** + **React 18** - Interface moderna
+- **TypeScript** - Tipagem forte
+- **TailwindCSS** - Design responsivo
+- **Lucide React** - Ícones profissionais
+
+### Legal Tech Stack
+- **pytesseract** - OCR para documentos
+- **spaCy** - NLP e extração de entidades
+- **sentence-transformers** - Embeddings semânticos
+- **scikit-learn** - Classificação ML
 
 ## 🚀 Instalação Rápida
 
