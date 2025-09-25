@@ -17,7 +17,7 @@ import os
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-import redis.asyncio as redis
+import redis
 from contextlib import asynccontextmanager
 
 # Configuração de Logging
@@ -314,8 +314,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Iniciando B3 Trading Platform API...")
     try:
-        app.state.redis = await redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
-        await app.state.redis.ping()
+        app.state.redis = redis.Redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        app.state.redis.ping()
         logger.info("✅ Conexão com Redis estabelecida")
     except Exception as e:
         logger.error(f"❌ Erro ao conectar com Redis: {e}")
@@ -326,7 +326,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("🛑 Encerrando B3 Trading Platform API...")
     if hasattr(app.state, 'redis') and app.state.redis:
-        await app.state.redis.close()
+        app.state.redis.close()
 
 # Criar aplicação FastAPI
 app = FastAPI(
@@ -373,7 +373,7 @@ async def health_check():
     redis_status = "healthy"
     try:
         if hasattr(app.state, 'redis') and app.state.redis:
-            await app.state.redis.ping()
+            app.state.redis.ping()
         else:
             redis_status = "disconnected"
     except:
