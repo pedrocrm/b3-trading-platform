@@ -1,20 +1,5 @@
-# B3 Trading Platform - Backend Dependencies (Minimal)
-
-# FastAPI e servidor
+# B3 Trading Platform - Minimal Backend Dependencies
 fastapi==0.104.1
 uvicorn==0.24.0
-
-# Validação
-pydantic==2.5.0
-
-# Autenticação
-python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
-python-multipart==0.0.6
-
-# Cache
-redis==5.0.1
-
-# Utilitários
 python-dotenv==1.0.0
 

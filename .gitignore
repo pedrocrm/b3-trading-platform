@@ -1,0 +1,38 @@
+# B3 Trading Platform - Global .gitignore
+
+# Arquivos que não pertencem ao projeto
+*Copia*
+*.zip
+integration_plan*
+juris-lex*
+legal-tech*
+pasted_content*
+entities*
+Search*
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env.local
+.env.production
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
