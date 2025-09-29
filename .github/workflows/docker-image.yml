@@ -14,5 +14,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: Build the Docker image
-      run: docker build . --file Dockerfile --tag my-image-name:$(date +%s)
+    
+    - name: Build Backend Docker image
+      run: docker build -f b3-trading-platform/backend/Dockerfile b3-trading-platform/backend --tag b3-backend:$(date +%s)
+      
+    - name: Build Frontend Docker image
+      run: docker build -f b3-trading-platform/frontend/Dockerfile b3-trading-platform/frontend --tag b3-frontend:$(date +%s)
+      
+    - name: Build Market Data Docker image
+      run: docker build -f b3-trading-platform/services/market-data/Dockerfile b3-trading-platform/services/market-data --tag b3-market-data:$(date +%s)
